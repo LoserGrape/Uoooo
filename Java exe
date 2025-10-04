@@ -1,358 +1,198 @@
-// j4v4 executor — updated per user's spec
 (() => {
   if (window.__J4V4_EXECUTOR_LOADED) {
-    const existing = document.getElementById('__j4v4_executor_root');
-    if (existing) existing.style.display = existing.style.display === 'none' ? 'block' : 'none';
     return;
   }
   window.__J4V4_EXECUTOR_LOADED = true;
 
-  const STORAGE_KEY = 'j4v4_executor_saves_v2';
+  const STORAGE_KEY = 'j4v4_executor_saves_v3';
 
   function loadSaves() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return parsed;
-    } catch (e) { return []; }
+      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    } catch { return []; }
   }
   function storeSaves(arr) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); } catch (e) {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); } catch {}
   }
 
-  // container
   const container = document.createElement('div');
   container.id = '__j4v4_executor_root';
-  container.style.zIndex = 2147483647;
-  // open shadow so we can access elements
-  const sroot = container.attachShadow({mode:'open'});
+  container.style.zIndex = 2147483647; // overlay everything
+  container.style.position = 'fixed';
+  container.style.left = '40px';
+  container.style.top = '60px';
 
+  const sroot = container.attachShadow({mode:'open'});
   sroot.innerHTML = `
   <style>
-    :host{all:initial;}
+    :host { all:initial; }
     .panel {
-      --bg: #0b0b0b;
-      --accent: #d62e2e;
-      --text: #fff;
-      position: fixed;
-      left: 40px;
-      top: 60px;
-      width: 640px;
-      height: 420px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+      width: 640px; height: 420px;
       border-radius: 8px;
-      box-shadow: 0 8px 30px rgba(0,0,0,0.5);
-      overflow: hidden;
-      user-select: none;
-      display: flex;
-      flex-direction: column;
-      border: 4px solid hsl(0,100%,50%);
       background: #050505;
+      position: relative;
+      overflow: hidden;
+      display: flex; flex-direction: column;
+      border: 4px solid hsl(0,100%,50%);
     }
     .titlebar {
-      background: var(--bg);
-      color: var(--text);
+      background: #0b0b0b;
+      color: #fff;
       padding: 10px 12px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:8px;
+      display:flex; align-items:center; justify-content:space-between;
       cursor: grab;
     }
-    .title {
-      font-weight: 700;
-      font-size: 18px;
-      letter-spacing: 0.6px;
-    }
-    .controls {
-      display:flex;
-      gap:8px;
-      align-items:center;
-    }
-    .btn {
-      background: transparent;
-      color: var(--accent);
-      border: 2px solid var(--accent);
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-weight:700;
-      cursor: pointer;
-    }
-    .btn.small { padding: 4px 8px; font-weight:700; }
-    .body {
-      display:flex;
-      flex:1;
-      background: #000;
-    }
-    .left {
-      width: 140px;
-      background: linear-gradient(180deg,#0f0f0f,#070707);
-      padding: 10px;
-      box-sizing: border-box;
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-      border-right: 2px solid rgba(255,255,255,0.03);
-    }
+    .title { font-weight:700; font-size:18px; }
+    .body { flex:1; display:flex; background:#000; }
+    .left { width:140px; background:#111; padding:10px; box-sizing:border-box; display:flex; flex-direction:column; gap:8px; }
     .saveBtn {
-      background: rgba(214,46,46,0.06);
-      color: #f55;
-      border: 2px solid rgba(214,46,46,0.3);
-      padding: 10px;
+      border:2px solid hsl(0,100%,50%);
       border-radius:6px;
+      padding:10px;
       text-align:center;
-      cursor:pointer;
       font-weight:800;
-    }
-    .savesList {
-      margin-top:8px;
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-      overflow:auto;
-    }
-    .saveItem {
-      background: transparent;
-      color: #ddd;
-      border: 2px solid rgba(255,255,255,0.03);
-      padding: 8px 6px;
-      border-radius:6px;
-      text-align:left;
+      color:#fff;
+      background:transparent;
       cursor:pointer;
-      font-size:13px;
-      white-space:nowrap;
-      text-overflow:ellipsis;
-      overflow:hidden;
     }
-    .saveItem:hover { border-color: rgba(214,46,46,0.4); color: #fff; }
-    .editorWrap {
+    .savesList { margin-top:8px; display:flex; flex-direction:column; gap:6px; overflow:auto; }
+    .saveItem {
+      border:2px solid hsl(0,100%,50%);
+      border-radius:6px;
+      padding:6px;
+      background:transparent;
+      color:#ddd;
+      cursor:pointer;
+    }
+    .editorWrap { flex:1; padding:12px; display:flex; flex-direction:column; gap:8px; }
+    textarea {
       flex:1;
-      padding: 12px;
-      box-sizing: border-box;
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-    }
-    textarea#j4v4_editor {
       width:100%;
-      height:100%;
-      background: #060606;
-      color: #ddd;
-      border: 2px solid #111;
+      resize:none;
+      background:#060606;
+      border:2px solid #111;
+      color:#ddd;
+      border-radius:6px;
+      font-family: inherit;
+      font-size:13px;
       padding:12px;
       box-sizing:border-box;
-      resize:none;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
-      font-size:13px;
+    }
+    .footer { display:flex; gap:8px; justify-content:flex-end; }
+    .btn {
+      border:2px solid hsl(0,100%,50%);
       border-radius:6px;
+      padding:6px 10px;
+      font-weight:700;
+      color:#fff;
+      background:transparent;
+      cursor:pointer;
     }
-    .footer {
-      display:flex;
-      gap:8px;
-      padding-top:6px;
-      align-items:center;
-    }
-    .footer .leftfoot { flex:1; color:#aaa; font-size:13px; }
-    .footer .actions { display:flex; gap:8px; }
-    .minimized {
-      height: 40px !important;
-    }
-    /* small scrollbar for saves list */
-    .savesList::-webkit-scrollbar { height:6px; width:6px; }
-    .savesList::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 4px; }
   </style>
-
   <div class="panel" id="panel">
     <div class="titlebar" id="titlebar">
       <div class="title" id="titleText">J4va Execut0r</div>
       <div class="controls">
-        <button class="btn small" id="minBtn">—</button>
-        <button class="btn small" id="closeBtn">✕</button>
+        <button class="btn" id="minBtn">—</button>
+        <button class="btn" id="closeBtn">✕</button>
       </div>
     </div>
-
-    <div class="body" id="bodyArea">
-      <div class="left" id="left">
+    <div class="body">
+      <div class="left">
         <div class="saveBtn" id="addSaveBtn">S4VE!!</div>
         <div class="savesList" id="savesList"></div>
       </div>
-
       <div class="editorWrap">
-        <textarea id="j4v4_editor" placeholder="(insert JavaScript here!!1 :D)"></textarea>
+        <textarea id="editor" placeholder="(insert JavaScript here!!1 :D)"></textarea>
         <div class="footer">
-          <div class="leftfoot"></div>
-          <div class="actions">
-            <button class="btn" id="clearBtn">C1ear!!1</button>
-            <button class="btn" id="execBtn">Execute!!1</button>
-          </div>
+          <button class="btn" id="clearBtn">C1ear!!1</button>
+          <button class="btn" id="execBtn">Execute!!1</button>
         </div>
       </div>
     </div>
   </div>
   `;
 
-  document.documentElement.appendChild(container);
-  // append shadow to DOM (container already has shadow), but we attached to container which is in DOM.
+  document.body.appendChild(container);
 
-  const shadow = sroot;
-  const panel = shadow.getElementById('panel');
-  const titlebar = shadow.getElementById('titlebar');
-  const minBtn = shadow.getElementById('minBtn');
-  const closeBtn = shadow.getElementById('closeBtn');
-  const addSaveBtn = shadow.getElementById('addSaveBtn');
-  const savesList = shadow.getElementById('savesList');
-  const editor = shadow.getElementById('j4v4_editor');
-  const execBtn = shadow.getElementById('execBtn');
-  const clearBtn = shadow.getElementById('clearBtn');
-  const bodyArea = shadow.getElementById('bodyArea');
-  const titleText = shadow.getElementById('titleText');
-
-  // initialize editor content
-  editor.value = '(insert JavaScript here!!1 :D)';
+  const panel = sroot.getElementById('panel');
+  const titlebar = sroot.getElementById('titlebar');
+  const titleText = sroot.getElementById('titleText');
+  const addSaveBtn = sroot.getElementById('addSaveBtn');
+  const savesList = sroot.getElementById('savesList');
+  const editor = sroot.getElementById('editor');
+  const execBtn = sroot.getElementById('execBtn');
+  const clearBtn = sroot.getElementById('clearBtn');
+  const minBtn = sroot.getElementById('minBtn');
+  const closeBtn = sroot.getElementById('closeBtn');
 
   // draggable
-  (function makeDraggable() {
-    let dragging = false;
-    let offsetX = 0, offsetY = 0;
-    titlebar.addEventListener('pointerdown', (ev) => {
-      dragging = true;
-      const rect = panel.getBoundingClientRect();
-      offsetX = ev.clientX - rect.left;
-      offsetY = ev.clientY - rect.top;
-      titlebar.setPointerCapture(ev.pointerId);
+  (() => {
+    let drag=false, dx=0,dy=0;
+    titlebar.addEventListener('pointerdown',e=>{
+      drag=true;dx=e.clientX-panel.getBoundingClientRect().left;dy=e.clientY-panel.getBoundingClientRect().top;
+      titlebar.setPointerCapture(e.pointerId);
     });
-    window.addEventListener('pointermove', (ev) => {
-      if (!dragging) return;
-      const left = Math.max(0, ev.clientX - offsetX);
-      const top = Math.max(0, ev.clientY - offsetY);
-      panel.style.left = left + 'px';
-      panel.style.top = top + 'px';
+    window.addEventListener('pointermove',e=>{
+      if(!drag) return;
+      panel.style.left=(e.clientX-dx)+'px';
+      panel.style.top=(e.clientY-dy)+'px';
+      panel.style.position='fixed';
     });
-    window.addEventListener('pointerup', () => { dragging = false; });
+    window.addEventListener('pointerup',()=>{drag=false;});
   })();
 
-  // min / fold behavior
-  let folded = false;
-  minBtn.addEventListener('click', () => {
-    folded = !folded;
-    if (folded) {
-      bodyArea.style.display = 'none';
-      panel.style.height = '40px';
-      minBtn.textContent = '+';
-    } else {
-      bodyArea.style.display = 'flex';
-      panel.style.height = '420px';
-      minBtn.textContent = '—';
-    }
-  });
-
-  // close: remove panel
-  closeBtn.addEventListener('click', () => {
-    try { document.documentElement.removeChild(container); } catch (e) {}
-    window.__J4V4_EXECUTOR_LOADED = false;
-    // cleanup intervals if set
-    if (window.__j4v4_executor_cleanup) {
-      try { window.__j4v4_executor_cleanup(); } catch (_) {}
-      delete window.__j4v4_executor_cleanup;
-    }
-  });
-
-  // save management UI
-  function renderSaves() {
-    savesList.innerHTML = '';
-    const saves = loadSaves();
-    saves.forEach((s, idx) => {
-      const btn = document.createElement('button');
-      btn.className = 'saveItem';
-      btn.textContent = s.name || ('save-' + idx);
-      btn.title = s.name || '';
-      btn.addEventListener('click', () => {
-        editor.value = s.code || '';
-      });
-      // right-click to delete
-      btn.addEventListener('contextmenu', (ev) => {
-        ev.preventDefault();
-        const ok = confirm('Delete save "' + (s.name || '') + '"? (OK to delete)');
-        if (!ok) return;
-        const arr = loadSaves();
-        arr.splice(idx, 1);
-        storeSaves(arr);
-        renderSaves();
-      });
-      savesList.appendChild(btn);
+  // save system
+  function renderSaves(){
+    savesList.innerHTML='';
+    loadSaves().forEach((s,idx)=>{
+      const b=document.createElement('button');
+      b.className='saveItem'; b.textContent=s.name;
+      b.onclick=()=>{editor.value=s.code;};
+      b.oncontextmenu=(ev)=>{ev.preventDefault();const arr=loadSaves();arr.splice(idx,1);storeSaves(arr);renderSaves();};
+      savesList.appendChild(b);
     });
   }
   renderSaves();
+  addSaveBtn.onclick=()=>{
+    const name=prompt('SAVE AS!?'); if(!name) return;
+    const arr=loadSaves(); arr.push({name,code:editor.value}); storeSaves(arr); renderSaves();
+  };
 
-  addSaveBtn.addEventListener('click', () => {
-    const name = prompt('SAVE AS!?');
-    if (!name) return;
-    const code = editor.value;
-    const arr = loadSaves();
-    arr.push({name: name, code: code});
-    storeSaves(arr);
-    renderSaves();
-  });
+  clearBtn.onclick=()=>{editor.value='';};
 
-  // clear quietly
-  clearBtn.addEventListener('click', () => {
-    editor.value = '';
-  });
+  // EXECUTE: runs code, if successful => remove panel
+  execBtn.onclick=()=>{
+    const code=editor.value;
+    try {
+      const el=document.createElement('script');
+      el.textContent=`try{${code}}catch(e){console.error(e)}`;
+      document.documentElement.appendChild(el);
+      el.remove();
+      // if it didn't throw immediately, remove panel
+      container.remove();
+      window.__J4V4_EXECUTOR_LOADED=false;
+    } catch(e){ console.error(e); }
+  };
 
-  // execution: inject script tag into page to execute in page context
-  execBtn.addEventListener('click', () => {
-    const code = editor.value || '';
-    if (!code.trim()) return;
-    // No extra confirmation (per your request). Executes in page context.
-    const wrapped = `(function(){\ntry{\n${code}\n}catch(e){console.error('j4v4 executor error', e);} })();`;
-    const el = document.createElement('script');
-    el.textContent = wrapped;
-    (document.documentElement || document.body).appendChild(el);
-    el.parentNode.removeChild(el);
-  });
+  // disable X and -
+  minBtn.onclick=()=>{};
+  closeBtn.onclick=()=>{};
 
-  // keyboard shortcuts: Ctrl+Shift+Enter => execute, Ctrl+Shift+S => add save (prompt)
-  window.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.shiftKey && e.key === 'Enter') {
-      execBtn.click();
-    }
-    if (e.ctrlKey && e.shiftKey && (e.key === 'S' || e.key === 's')) {
-      e.preventDefault();
-      addSaveBtn.click();
-    }
-  });
+  // title random swap
+  const titles=["J4va Execut0r","JAv4 3xecutoR","Java Execut0r","J4va Execut0r"];
+  setInterval(()=>{titleText.textContent=titles[Math.floor(Math.random()*titles.length)];},1000);
 
-  // Title random swap every 1s
-  const titles = ["J4va Execut0r","JAv4 3xecutoR","Java Execut0r","J4va Execut0r"];
-  let titleInterval = setInterval(() => {
-    const t = titles[Math.floor(Math.random() * titles.length)];
-    titleText.textContent = t;
-  }, 1000);
-
-  // Outline RGB smoothly transitioning using requestAnimationFrame
-  let hue = 0;
-  let rafId = null;
-  function animateHue() {
-    hue = (hue + 0.4) % 360; // small step for smoothness
-    panel.style.borderColor = `hsl(${hue},100%,50%)`;
-    // subtle box-shadow color shift
-    panel.style.boxShadow = `0 8px 30px hsla(${(hue+180)%360},70%,10%,0.6)`;
-    rafId = requestAnimationFrame(animateHue);
+  // RGB animation
+  let hue=0;
+  function animate(){
+    hue=(hue+0.8)%360;
+    panel.style.borderColor=`hsl(${hue},100%,50%)`;
+    sroot.querySelectorAll('.btn,.saveBtn,.saveItem').forEach(el=>{
+      el.style.borderColor=`hsl(${hue},100%,50%)`;
+    });
+    requestAnimationFrame(animate);
   }
-  rafId = requestAnimationFrame(animateHue);
-
-  // cleanup function in case of close
-  window.__j4v4_executor_cleanup = () => {
-    clearInterval(titleInterval);
-    if (rafId) cancelAnimationFrame(rafId);
-  };
-
-  // expose helper for debugging / removing
-  window.__j4v4_executor = {
-    remove: () => { try { document.documentElement.removeChild(container); } catch(e){} },
-    loadSaves, storeSaves
-  };
-
-  console.log('j4v4 executor ready — paste JS and press Execute!!1 (Ctrl+Shift+Enter). Right-click a save to delete it.');
+  animate();
 })();
