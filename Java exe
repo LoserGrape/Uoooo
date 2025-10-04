@@ -1,158 +1,358 @@
-(function() {
-  if (window._jsExecPanel) { return; } // prevent duplicates
-  window._jsExecPanel = true;
+// j4v4 executor — updated per user's spec
+(() => {
+  if (window.__J4V4_EXECUTOR_LOADED) {
+    const existing = document.getElementById('__j4v4_executor_root');
+    if (existing) existing.style.display = existing.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+  window.__J4V4_EXECUTOR_LOADED = true;
 
-  // --- Styles & panel ---
-  const panel = document.createElement("div");
-  panel.style.cssText = `
-    position: fixed;
-    top: 60px; left: 60px;
-    width: 640px; height: 420px;
-    background: #111; color: #eee;
-    font-family: monospace;
-    border: 2px solid #c00;
-    border-radius: 8px;
-    resize: both;
-    overflow: hidden;
-    z-index: 999999;
-    display: flex; flex-direction: column;
+  const STORAGE_KEY = 'j4v4_executor_saves_v2';
+
+  function loadSaves() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed;
+    } catch (e) { return []; }
+  }
+  function storeSaves(arr) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); } catch (e) {}
+  }
+
+  // container
+  const container = document.createElement('div');
+  container.id = '__j4v4_executor_root';
+  container.style.zIndex = 2147483647;
+  // open shadow so we can access elements
+  const sroot = container.attachShadow({mode:'open'});
+
+  sroot.innerHTML = `
+  <style>
+    :host{all:initial;}
+    .panel {
+      --bg: #0b0b0b;
+      --accent: #d62e2e;
+      --text: #fff;
+      position: fixed;
+      left: 40px;
+      top: 60px;
+      width: 640px;
+      height: 420px;
+      border-radius: 8px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+      overflow: hidden;
+      user-select: none;
+      display: flex;
+      flex-direction: column;
+      border: 4px solid hsl(0,100%,50%);
+      background: #050505;
+    }
+    .titlebar {
+      background: var(--bg);
+      color: var(--text);
+      padding: 10px 12px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      cursor: grab;
+    }
+    .title {
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: 0.6px;
+    }
+    .controls {
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+    .btn {
+      background: transparent;
+      color: var(--accent);
+      border: 2px solid var(--accent);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-weight:700;
+      cursor: pointer;
+    }
+    .btn.small { padding: 4px 8px; font-weight:700; }
+    .body {
+      display:flex;
+      flex:1;
+      background: #000;
+    }
+    .left {
+      width: 140px;
+      background: linear-gradient(180deg,#0f0f0f,#070707);
+      padding: 10px;
+      box-sizing: border-box;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      border-right: 2px solid rgba(255,255,255,0.03);
+    }
+    .saveBtn {
+      background: rgba(214,46,46,0.06);
+      color: #f55;
+      border: 2px solid rgba(214,46,46,0.3);
+      padding: 10px;
+      border-radius:6px;
+      text-align:center;
+      cursor:pointer;
+      font-weight:800;
+    }
+    .savesList {
+      margin-top:8px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      overflow:auto;
+    }
+    .saveItem {
+      background: transparent;
+      color: #ddd;
+      border: 2px solid rgba(255,255,255,0.03);
+      padding: 8px 6px;
+      border-radius:6px;
+      text-align:left;
+      cursor:pointer;
+      font-size:13px;
+      white-space:nowrap;
+      text-overflow:ellipsis;
+      overflow:hidden;
+    }
+    .saveItem:hover { border-color: rgba(214,46,46,0.4); color: #fff; }
+    .editorWrap {
+      flex:1;
+      padding: 12px;
+      box-sizing: border-box;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    textarea#j4v4_editor {
+      width:100%;
+      height:100%;
+      background: #060606;
+      color: #ddd;
+      border: 2px solid #111;
+      padding:12px;
+      box-sizing:border-box;
+      resize:none;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+      font-size:13px;
+      border-radius:6px;
+    }
+    .footer {
+      display:flex;
+      gap:8px;
+      padding-top:6px;
+      align-items:center;
+    }
+    .footer .leftfoot { flex:1; color:#aaa; font-size:13px; }
+    .footer .actions { display:flex; gap:8px; }
+    .minimized {
+      height: 40px !important;
+    }
+    /* small scrollbar for saves list */
+    .savesList::-webkit-scrollbar { height:6px; width:6px; }
+    .savesList::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 4px; }
+  </style>
+
+  <div class="panel" id="panel">
+    <div class="titlebar" id="titlebar">
+      <div class="title" id="titleText">J4va Execut0r</div>
+      <div class="controls">
+        <button class="btn small" id="minBtn">—</button>
+        <button class="btn small" id="closeBtn">✕</button>
+      </div>
+    </div>
+
+    <div class="body" id="bodyArea">
+      <div class="left" id="left">
+        <div class="saveBtn" id="addSaveBtn">S4VE!!</div>
+        <div class="savesList" id="savesList"></div>
+      </div>
+
+      <div class="editorWrap">
+        <textarea id="j4v4_editor" placeholder="(insert JavaScript here!!1 :D)"></textarea>
+        <div class="footer">
+          <div class="leftfoot"></div>
+          <div class="actions">
+            <button class="btn" id="clearBtn">C1ear!!1</button>
+            <button class="btn" id="execBtn">Execute!!1</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   `;
 
-  // --- Title bar ---
-  const titleBar = document.createElement("div");
-  titleBar.textContent = "JS EXECUTOR";
-  titleBar.style.cssText = `
-    background: #300;
-    padding: 4px 8px;
-    cursor: move;
-    user-select: none;
-  `;
-  panel.appendChild(titleBar);
+  document.documentElement.appendChild(container);
+  // append shadow to DOM (container already has shadow), but we attached to container which is in DOM.
 
-  // --- Body layout ---
-  const body = document.createElement("div");
-  body.style.cssText = "flex:1; display:flex; overflow:hidden;";
-  panel.appendChild(body);
+  const shadow = sroot;
+  const panel = shadow.getElementById('panel');
+  const titlebar = shadow.getElementById('titlebar');
+  const minBtn = shadow.getElementById('minBtn');
+  const closeBtn = shadow.getElementById('closeBtn');
+  const addSaveBtn = shadow.getElementById('addSaveBtn');
+  const savesList = shadow.getElementById('savesList');
+  const editor = shadow.getElementById('j4v4_editor');
+  const execBtn = shadow.getElementById('execBtn');
+  const clearBtn = shadow.getElementById('clearBtn');
+  const bodyArea = shadow.getElementById('bodyArea');
+  const titleText = shadow.getElementById('titleText');
 
-  // Left column (save list + save button)
-  const leftCol = document.createElement("div");
-  leftCol.style.cssText = `
-    width: 120px; border-right:2px solid #c00;
-    display:flex; flex-direction:column;
-  `;
-  body.appendChild(leftCol);
+  // initialize editor content
+  editor.value = '(insert JavaScript here!!1 :D)';
 
-  const saveBtn = document.createElement("button");
-  saveBtn.textContent = "save";
-  saveBtn.style.cssText = `
-    background:#222; color:#eee; border:none;
-    border-bottom:2px solid #c00;
-    padding:6px; cursor:pointer;
-  `;
-  leftCol.appendChild(saveBtn);
+  // draggable
+  (function makeDraggable() {
+    let dragging = false;
+    let offsetX = 0, offsetY = 0;
+    titlebar.addEventListener('pointerdown', (ev) => {
+      dragging = true;
+      const rect = panel.getBoundingClientRect();
+      offsetX = ev.clientX - rect.left;
+      offsetY = ev.clientY - rect.top;
+      titlebar.setPointerCapture(ev.pointerId);
+    });
+    window.addEventListener('pointermove', (ev) => {
+      if (!dragging) return;
+      const left = Math.max(0, ev.clientX - offsetX);
+      const top = Math.max(0, ev.clientY - offsetY);
+      panel.style.left = left + 'px';
+      panel.style.top = top + 'px';
+    });
+    window.addEventListener('pointerup', () => { dragging = false; });
+  })();
 
-  const saveList = document.createElement("div");
-  saveList.style.cssText = "flex:1; overflow:auto;";
-  leftCol.appendChild(saveList);
-
-  // Editor
-  const editor = document.createElement("textarea");
-  editor.style.cssText = `
-    flex:1; background:#000; color:#0f0;
-    border:none; outline:none; resize:none;
-    padding:8px; font-family: monospace; font-size: 13px;
-  `;
-  body.appendChild(editor);
-
-  // Footer buttons
-  const footer = document.createElement("div");
-  footer.style.cssText = `
-    border-top:2px solid #c00;
-    display:flex;
-  `;
-  panel.appendChild(footer);
-
-  const btn = (txt) => {
-    const b = document.createElement("button");
-    b.textContent = txt;
-    b.style.cssText = `
-      flex:1; background:#222; color:#eee;
-      border:none; border-right:2px solid #c00;
-      padding:6px; cursor:pointer;
-    `;
-    return b;
-  };
-
-  const clearBtn = btn("Clear");
-  const execBtn = btn("Execute!!1");
-  footer.append(clearBtn, execBtn);
-
-  document.body.appendChild(panel);
-
-  // --- Dragging logic ---
-  let isDrag = false, offsetX, offsetY;
-  titleBar.addEventListener("mousedown", e => {
-    isDrag = true; offsetX = e.clientX - panel.offsetLeft; offsetY = e.clientY - panel.offsetTop;
-  });
-  document.addEventListener("mouseup", () => isDrag=false);
-  document.addEventListener("mousemove", e => {
-    if (isDrag) {
-      panel.style.left = (e.clientX - offsetX) + "px";
-      panel.style.top  = (e.clientY - offsetY) + "px";
+  // min / fold behavior
+  let folded = false;
+  minBtn.addEventListener('click', () => {
+    folded = !folded;
+    if (folded) {
+      bodyArea.style.display = 'none';
+      panel.style.height = '40px';
+      minBtn.textContent = '+';
+    } else {
+      bodyArea.style.display = 'flex';
+      panel.style.height = '420px';
+      minBtn.textContent = '—';
     }
   });
 
-  // --- Storage helpers ---
-  const KEY = "jsExecSaves";
-  let saves = JSON.parse(localStorage.getItem(KEY) || "{}");
+  // close: remove panel
+  closeBtn.addEventListener('click', () => {
+    try { document.documentElement.removeChild(container); } catch (e) {}
+    window.__J4V4_EXECUTOR_LOADED = false;
+    // cleanup intervals if set
+    if (window.__j4v4_executor_cleanup) {
+      try { window.__j4v4_executor_cleanup(); } catch (_) {}
+      delete window.__j4v4_executor_cleanup;
+    }
+  });
 
+  // save management UI
   function renderSaves() {
-    saveList.innerHTML = "";
-    Object.keys(saves).forEach(name => {
-      const tab = document.createElement("div");
-      tab.textContent = name;
-      tab.style.cssText = `
-        padding:4px; border-bottom:1px solid #333;
-        cursor:pointer; white-space:nowrap;
-        overflow:hidden; text-overflow:ellipsis;
-      `;
-      let lastClick = 0;
-      tab.addEventListener("click", () => {
-        let now = Date.now();
-        if (now - lastClick < 400) {
-          // double click -> delete
-          const ans = prompt("DE1ETE? [yes/no]");
-          if (ans && ans.toLowerCase().trim() === "yes") {
-            delete saves[name];
-            localStorage.setItem(KEY, JSON.stringify(saves));
-            renderSaves();
-          }
-        } else {
-          // single click -> load
-          editor.value = saves[name];
-        }
-        lastClick = now;
+    savesList.innerHTML = '';
+    const saves = loadSaves();
+    saves.forEach((s, idx) => {
+      const btn = document.createElement('button');
+      btn.className = 'saveItem';
+      btn.textContent = s.name || ('save-' + idx);
+      btn.title = s.name || '';
+      btn.addEventListener('click', () => {
+        editor.value = s.code || '';
       });
-      saveList.appendChild(tab);
+      // right-click to delete
+      btn.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault();
+        const ok = confirm('Delete save "' + (s.name || '') + '"? (OK to delete)');
+        if (!ok) return;
+        const arr = loadSaves();
+        arr.splice(idx, 1);
+        storeSaves(arr);
+        renderSaves();
+      });
+      savesList.appendChild(btn);
     });
   }
   renderSaves();
 
-  // --- Button actions ---
-  saveBtn.onclick = () => {
-    const name = prompt("S4VE AS!?");
+  addSaveBtn.addEventListener('click', () => {
+    const name = prompt('SAVE AS!?');
     if (!name) return;
-    saves[name] = editor.value;
-    localStorage.setItem(KEY, JSON.stringify(saves));
+    const code = editor.value;
+    const arr = loadSaves();
+    arr.push({name: name, code: code});
+    storeSaves(arr);
     renderSaves();
+  });
+
+  // clear quietly
+  clearBtn.addEventListener('click', () => {
+    editor.value = '';
+  });
+
+  // execution: inject script tag into page to execute in page context
+  execBtn.addEventListener('click', () => {
+    const code = editor.value || '';
+    if (!code.trim()) return;
+    // No extra confirmation (per your request). Executes in page context.
+    const wrapped = `(function(){\ntry{\n${code}\n}catch(e){console.error('j4v4 executor error', e);} })();`;
+    const el = document.createElement('script');
+    el.textContent = wrapped;
+    (document.documentElement || document.body).appendChild(el);
+    el.parentNode.removeChild(el);
+  });
+
+  // keyboard shortcuts: Ctrl+Shift+Enter => execute, Ctrl+Shift+S => add save (prompt)
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key === 'Enter') {
+      execBtn.click();
+    }
+    if (e.ctrlKey && e.shiftKey && (e.key === 'S' || e.key === 's')) {
+      e.preventDefault();
+      addSaveBtn.click();
+    }
+  });
+
+  // Title random swap every 1s
+  const titles = ["J4va Execut0r","JAv4 3xecutoR","Java Execut0r","J4va Execut0r"];
+  let titleInterval = setInterval(() => {
+    const t = titles[Math.floor(Math.random() * titles.length)];
+    titleText.textContent = t;
+  }, 1000);
+
+  // Outline RGB smoothly transitioning using requestAnimationFrame
+  let hue = 0;
+  let rafId = null;
+  function animateHue() {
+    hue = (hue + 0.4) % 360; // small step for smoothness
+    panel.style.borderColor = `hsl(${hue},100%,50%)`;
+    // subtle box-shadow color shift
+    panel.style.boxShadow = `0 8px 30px hsla(${(hue+180)%360},70%,10%,0.6)`;
+    rafId = requestAnimationFrame(animateHue);
+  }
+  rafId = requestAnimationFrame(animateHue);
+
+  // cleanup function in case of close
+  window.__j4v4_executor_cleanup = () => {
+    clearInterval(titleInterval);
+    if (rafId) cancelAnimationFrame(rafId);
   };
 
-  clearBtn.onclick = () => { editor.value = ""; };
-  execBtn.onclick = () => {
-    try {
-      (0, eval)(editor.value);
-    } catch(err) {
-      alert("Error: " + err);
-    }
+  // expose helper for debugging / removing
+  window.__j4v4_executor = {
+    remove: () => { try { document.documentElement.removeChild(container); } catch(e){} },
+    loadSaves, storeSaves
   };
+
+  console.log('j4v4 executor ready — paste JS and press Execute!!1 (Ctrl+Shift+Enter). Right-click a save to delete it.');
 })();
