@@ -1,0 +1,368 @@
+// j4v4 Executor UI — paste this into the console (or userscript) to create the panel
+(() => {
+  if (window.__J4V4_EXECUTOR_LOADED) {
+    // Toggle visibility if re-run
+    const root = document.getElementById('__j4v4_executor_root');
+    if (root) root.style.display = root.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+  window.__J4V4_EXECUTOR_LOADED = true;
+
+  const SLOT_KEY = 'j4v4_executor_slots_v1'; // localStorage key
+  const DEFAULT_SLOTS = ['', '']; // two slots to match "save" and "save1" in the mock
+
+  // Utilities for slots
+  function loadSlots() {
+    try {
+      const raw = localStorage.getItem(SLOT_KEY);
+      if (!raw) return DEFAULT_SLOTS.slice();
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return DEFAULT_SLOTS.slice();
+      // ensure at least same number of slots
+      return parsed.concat(DEFAULT_SLOTS).slice(0, Math.max(parsed.length, DEFAULT_SLOTS.length));
+    } catch (e) {
+      return DEFAULT_SLOTS.slice();
+    }
+  }
+  function saveSlots(slots) {
+    localStorage.setItem(SLOT_KEY, JSON.stringify(slots));
+  }
+
+  const slots = loadSlots();
+
+  // Create wrapper and shadow root to avoid CSS conflicts
+  const container = document.createElement('div');
+  container.id = '__j4v4_executor_root';
+  container.style.zIndex = 2147483647; // top
+  // Attach shadow DOM
+  const shadow = container.attachShadow({ mode: 'closed' });
+
+  // Basic HTML inside shadow
+  shadow.innerHTML = `
+    <style>
+      :host { all: initial; }
+      .panel {
+        --bg: #0b0b0b;
+        --accent: #d62e2e;
+        --text: #fff;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+        position: fixed;
+        left: 40px;
+        top: 60px;
+        width: 640px;
+        height: 420px;
+        border-radius: 8px;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+        overflow: hidden;
+        user-select: none;
+        display: flex;
+        flex-direction: column;
+        border: 4px solid var(--accent);
+      }
+      .titlebar {
+        background: var(--bg);
+        color: var(--text);
+        padding: 10px 12px;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:8px;
+        cursor: move;
+      }
+      .title {
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: 0.6px;
+      }
+      .title .emoji { margin-right: 8px; }
+      .controls {
+        display:flex;
+        gap:8px;
+        align-items:center;
+      }
+      .btn {
+        background: transparent;
+        color: var(--accent);
+        border: 2px solid var(--accent);
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-weight:700;
+        cursor: pointer;
+      }
+      .btn.small { padding: 4px 6px; font-weight:700; }
+      .body {
+        display:flex;
+        flex:1;
+        background: #000;
+      }
+      .left {
+        width: 120px;
+        background: linear-gradient(180deg,#0f0f0f,#070707);
+        padding: 12px;
+        box-sizing: border-box;
+        display:flex;
+        flex-direction:column;
+        gap:8px;
+      }
+      .slot {
+        background: transparent;
+        color: var(--accent);
+        border: 2px solid transparent;
+        padding: 10px;
+        border-radius:6px;
+        text-align:center;
+        cursor:pointer;
+        flex-shrink:0;
+      }
+      .slot:hover { border-color: var(--accent); background: rgba(214,46,46,0.06); }
+      .editorWrap {
+        flex:1;
+        padding: 12px;
+        box-sizing: border-box;
+        display:flex;
+        flex-direction:column;
+        gap:8px;
+      }
+      textarea#j4v4_editor {
+        width:100%;
+        height:100%;
+        background: #060606;
+        color: #ddd;
+        border: 2px solid #111;
+        padding:12px;
+        box-sizing:border-box;
+        resize:none;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+        font-size:13px;
+        border-radius:6px;
+      }
+      .footer {
+        display:flex;
+        gap:8px;
+        padding-top:6px;
+        align-items:center;
+      }
+      .footer .leftfoot { flex:1; color:#aaa; font-size:13px; }
+      .footer .actions { display:flex; gap:8px; }
+      .minimized {
+        height: 38px !important;
+      }
+      .tinyTitle {
+        font-weight:700;
+      }
+    </style>
+
+    <div class="panel" id="panel">
+      <div class="titlebar" id="titlebar">
+        <div class="title"><span class="emoji">⚙️</span> j4v4 execut0r!!</div>
+        <div class="controls">
+          <button class="btn small" id="minBtn">—</button>
+          <button class="btn small" id="closeBtn">✕</button>
+        </div>
+      </div>
+
+      <div class="body">
+        <div class="left" id="left">
+          <button class="slot" id="slot0">save</button>
+          <button class="slot" id="slot1">save1</button>
+          <div style="flex:1;"></div>
+        </div>
+
+        <div class="editorWrap">
+          <textarea id="j4v4_editor" placeholder="// write JS here\n// press Execute!!1 to run"></textarea>
+          <div class="footer">
+            <div class="leftfoot" id="status">Ready</div>
+            <div class="actions">
+              <button class="btn" id="clearBtn">clear..</button>
+              <button class="btn" id="saveBtn">Save to slot</button>
+              <button class="btn" id="execBtn">Execute!!1</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(container);
+
+  // Access shadow elements via a temporary open shadow to query (we used closed above; to get nodes, recreate open shadow)
+  // To avoid complexity around closed shadow, we'll temporarily grab container.firstChild (the shadow root isn't exposed),
+  // but we can instead just attach elements directly to container (without shadow) to manipulate. To keep it simple, re-create with open shadow:
+
+  document.body.removeChild(container);
+  const container2 = document.createElement('div');
+  container2.id = '__j4v4_executor_root';
+  container2.style.zIndex = 2147483647;
+  const shadowOpen = container2.attachShadow({mode:'open'});
+
+  // copy innerHTML (same as above) but in one string to avoid duplication — reusing by setting innerHTML again:
+  shadowOpen.innerHTML = container.shadowRoot ? container.shadowRoot.innerHTML : shadow.innerHTML;
+  document.body.appendChild(container2);
+
+  const root = container2; // outer container
+  const s = shadowOpen;    // shadow root
+
+  // Element refs
+  const panel = s.getElementById('panel');
+  const titlebar = s.getElementById('titlebar');
+  const minBtn = s.getElementById('minBtn');
+  const closeBtn = s.getElementById('closeBtn');
+  const slot0Btn = s.getElementById('slot0');
+  const slot1Btn = s.getElementById('slot1');
+  const editor = s.getElementById('j4v4_editor');
+  const execBtn = s.getElementById('execBtn');
+  const clearBtn = s.getElementById('clearBtn');
+  const saveBtn = s.getElementById('saveBtn');
+  const status = s.getElementById('status');
+
+  // load slot labels (if custom names used later)
+  function refreshSlotButtons() {
+    const cur = loadSlots();
+    slot0Btn.textContent = cur[0] ? (cur[0].split('\n')[0].slice(0,18) + (cur[0].length>18 ? '…' : '')) : 'save';
+    slot1Btn.textContent = cur[1] ? (cur[1].split('\n')[0].slice(0,18) + (cur[1].length>18 ? '…' : '')) : 'save1';
+  }
+  refreshSlotButtons();
+
+  // Dragging logic
+  (function makeDraggable() {
+    let dragging = false;
+    let offsetX = 0, offsetY = 0;
+    titlebar.addEventListener('pointerdown', (ev) => {
+      dragging = true;
+      const rect = panel.getBoundingClientRect();
+      offsetX = ev.clientX - rect.left;
+      offsetY = ev.clientY - rect.top;
+      titlebar.setPointerCapture(ev.pointerId);
+    });
+    window.addEventListener('pointermove', (ev) => {
+      if (!dragging) return;
+      const left = Math.max(0, ev.clientX - offsetX);
+      const top = Math.max(0, ev.clientY - offsetY);
+      panel.style.left = left + 'px';
+      panel.style.top = top + 'px';
+    });
+    window.addEventListener('pointerup', (ev) => {
+      dragging = false;
+    });
+  })();
+
+  // Minimize and close
+  let minimized = false;
+  minBtn.addEventListener('click', () => {
+    minimized = !minimized;
+    if (minimized) {
+      panel.classList.add('minimized');
+      // collapse body area visually
+      const bodyDiv = s.querySelector('.body');
+      bodyDiv.style.display = 'none';
+      panel.style.height = '48px';
+      minBtn.textContent = '+';
+    } else {
+      panel.classList.remove('minimized');
+      const bodyDiv = s.querySelector('.body');
+      bodyDiv.style.display = 'flex';
+      panel.style.height = '420px';
+      minBtn.textContent = '—';
+    }
+  });
+  closeBtn.addEventListener('click', () => {
+    try { document.body.removeChild(root); } catch(e) {}
+    window.__J4V4_EXECUTOR_LOADED = false;
+  });
+
+  // Slot loading/saving
+  function setEditorText(text) { editor.value = text; status.textContent = 'Loaded slot'; }
+  slot0Btn.addEventListener('click', () => {
+    const cur = loadSlots();
+    setEditorText(cur[0] || '');
+  });
+  slot1Btn.addEventListener('click', () => {
+    const cur = loadSlots();
+    setEditorText(cur[1] || '');
+  });
+
+  saveBtn.addEventListener('click', () => {
+    const cur = loadSlots();
+    // choose slot 0 or 1 by asking user (simple)
+    const choice = prompt('Save to which slot? Enter 0 or 1 (default 0):', '0');
+    const idx = (choice === '1') ? 1 : 0;
+    cur[idx] = editor.value;
+    saveSlots(cur);
+    refreshSlotButtons();
+    status.textContent = `Saved to slot ${idx}`;
+  });
+
+  clearBtn.addEventListener('click', () => {
+    if (!confirm('Clear editor?')) return;
+    editor.value = '';
+    status.textContent = 'Cleared';
+  });
+
+  // Execution: inject script tag into page to run code in page context
+  execBtn.addEventListener('click', () => {
+    const code = editor.value;
+    if (!code.trim()) {
+      alert('Editor empty — nothing to run.');
+      return;
+    }
+
+    // Confirm safety
+    const ok = confirm('Execute code in page context? This can access page variables and DOM. Proceed only on pages you control.');
+    if (!ok) return;
+
+    // Build wrapper to report result to console and window.postMessage for visibility
+    const wrapped = `(function(){try{const __res = (function(){${code}\n})(); console.log('j4v4 executor: result ->', __res); window.postMessage({source:'j4v4-executor', type:'result', result: __res}, '*');}catch(e){console.error('j4v4 executor error', e); window.postMessage({source:'j4v4-executor', type:'error', message: String(e)}, '*');}})();`;
+
+    const script = document.createElement('script');
+    script.textContent = wrapped;
+    // append and remove to execute
+    (document.documentElement || document.body).appendChild(script);
+    script.parentNode.removeChild(script);
+
+    status.textContent = 'Executed — check page console';
+  });
+
+  // Also listen to messages from page script to put them in the little status
+  window.addEventListener('message', (ev) => {
+    if (!ev.data || ev.data.source !== 'j4v4-executor') return;
+    if (ev.data.type === 'result') {
+      try {
+        const msg = typeof ev.data.result === 'string' ? ev.data.result : JSON.stringify(ev.data.result);
+        status.textContent = 'Result: ' + String(msg).slice(0, 60);
+      } catch (e) { status.textContent = 'Result (object)'; }
+    } else if (ev.data.type === 'error') {
+      status.textContent = 'Error: ' + String(ev.data.message).slice(0,60);
+    }
+  });
+
+  // Keyboard shortcuts
+  window.addEventListener('keydown', (e) => {
+    // Ctrl+Shift+Enter => execute
+    if (e.ctrlKey && e.shiftKey && e.key === 'Enter') {
+      execBtn.click();
+    }
+    // Ctrl+Shift+S => save to slot 0
+    if (e.ctrlKey && e.shiftKey && (e.key === 'S' || e.key === 's')) {
+      e.preventDefault();
+      const cur = loadSlots();
+      cur[0] = editor.value;
+      saveSlots(cur);
+      refreshSlotButtons();
+      status.textContent = 'Saved to slot 0 (hotkey)';
+    }
+  });
+
+  // initial help text
+  editor.value = `// Welcome to j4v4 execut0r!\n// - Type JS here then press Execute!!1 or Ctrl+Shift+Enter\n// - Save to slots with Save to slot (choose 0 or 1)\n// - Use slots on the left to quickly load saved snippets\n\n// Example: change page background\n// document.body.style.background = 'lavender';\n`;
+
+  // store a reference on window for debugging (non-sensitive)
+  window.__j4v4_executor = {
+    openPanel: () => { root.style.display = 'block'; },
+    closePanel: () => { try { document.body.removeChild(root); } catch (e) {} },
+    loadSlots,
+    saveSlots
+  };
+
+  // done
+  console.log('j4v4 executor loaded — use the panel, or call window.__j4v4_executor.closePanel() to remove it.');
+})();
